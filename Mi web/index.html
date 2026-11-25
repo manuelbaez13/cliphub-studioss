@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <title>ClipHub Studio Pro — Cortes IA, Editor, Miniaturas IA y Redes</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ==================== CABECERA ==================== -->
+<header>
+  <div class="brand">
+    <span>🎬 ClipHub Studio</span>
+    <span class="brand-badge">PRO IA • OPTIMIZADO</span>
+  </div>
+  <nav>
+    <button type="button" class="tab-btn active" data-tab="studio">✂️ Estudio de Cortes</button>
+    <button type="button" class="tab-btn" data-tab="live">🔴 En Vivo &amp; Radar</button>
+    <button type="button" class="tab-btn" data-tab="viewer" id="viewerNavBtn">📺 Visualizador (0)</button>
+    <button type="button" class="tab-btn" data-tab="editor">🎬 Editor de Video</button>
+    <button type="button" class="tab-btn" data-tab="thumbs">🖼️ Miniaturas IA</button>
+    <button type="button" class="tab-btn" data-tab="social">📅 Redes &amp; Calendario</button>
+  </nav>
+  <button type="button" class="ai-btn" id="openAiModal">
+    <span class="dot" id="aiDot"></span>
+    <span id="aiStatusText">Configurar IA</span>
+  </button>
+</header>
+
+<!-- Barra fija de Estado en Vivo (HUD compacto visible en todas las pestañas cuando hay captura activa) -->
+<div id="liveHudBar" class="live-hud-bar">
+  <div class="row" style="gap:10px;">
+    <span class="rec-dot"></span>
+    <strong style="font-size:0.84rem; color:#fecaca;">EN VIVO</strong>
+    <div class="audio-meter-wrap" title="Nivel de voz humana en tiempo real">
+      <div class="audio-meter-fill" id="hudAudioMeter"></div>
+    </div>
+    <span class="badge green" id="hudRadarBadge">Escuchando</span>
+    <span class="muted" id="hudTgLast" style="font-size:0.78rem;">Telegram: en espera</span>
+  </div>
+  <div class="row" style="gap:6px;">
+    <button type="button" class="btn btn-sm btn-amber" id="hudCutNowBtn" title="Atajo: tecla K">✂️ Cortar Ahora (K)</button>
+    <button type="button" class="btn btn-sm" id="hudOpenLiveBtn">🔴 Ver Panel</button>
+    <button type="button" class="btn btn-sm btn-danger" id="hudStopBtn">⏹ Detener</button>
+  </div>
+</div>
+
+<video id="sourceVideo" playsinline preload="auto"></video>
+
+<main>
+  <!-- ==================== TAB 1: ESTUDIO DE CORTES (UX SIMPLIFICADA) ==================== -->
+  <section id="tab-studio" class="view active">
+    <!-- Input oculto reutilizado por la Dropzone y el botón "+ Nuevo Video" -->
+    <input type="file" id="videoInput" accept="video/*" hidden />
+
+    <!-- Barra compacta de conexión manual BYOK -->
+    <div class="api-bar ux-compact" id="manualApiBar">
+      <div class="row" style="gap:8px;">
+        <span style="font-size:0.8rem; font-weight:700; color:#cbd5e1;">🔑 IAs:</span>
+        <button type="button" class="api-pill" id="pillGroq">🎙️ Groq Whisper: Sin conectar</button>
+        <button type="button" class="api-pill" id="pillLlm">✂️ Gemini / LLM: Sin conectar</button>
+        <button type="button" class="api-pill ok" id="pillThumb">🖼️ Miniaturas: Canvas ($0)</button>
+      </div>
+      <button type="button" class="btn btn-sm" id="openManualApiBtn">⚙️ Tokens IA</button>
+    </div>
+
+    <!-- ESTADO A: PANTALLA DE ENTRADA LIMPIA (cuando aún no hay video cargado) -->
+    <div id="studioEmptyState" class="ux-empty-wrap">
+      <div class="ux-empty-card">
+        <div class="ux-empty-title">Convierte videos largos en clips virales</div>
+        <div class="muted">Sube un archivo, prueba el demo o captura un directo de YouTube.</div>
+
+        <div class="ux-dropzone" id="studioDropZone">
+          <div class="ux-drop-ico">📁</div>
+          <div style="font-weight:700; font-size:1rem;">Arrastra tu video aquí o haz clic para seleccionarlo</div>
+          <div class="muted">MP4, WebM o MOV • Procesamiento local + subtítulos IA</div>
+          <span class="btn btn-primary" style="margin-top:4px;">Seleccionar Video</span>
+        </div>
+
+        <div class="row" style="justify-content:center; margin-bottom:6px;">
+          <label style="display:flex; align-items:center; gap:6px; margin:0; cursor:pointer;">
+            <input type="checkbox" id="autoAnalyzeCheck" checked style="width:auto;" />
+            Auto-analizar y detectar cortes al subir
+          </label>
+        </div>
+
+        <div class="ux-empty-actions">
+          <button type="button" class="btn" id="loadDemoBtn">✨ Probar con Video Demo</button>
+          <button type="button" class="btn" id="emptyOpenYtBtn">🔴 YouTube / En Directo</button>
+          <button type="button" class="btn" id="restoreBtn" style="display:none;" title="Recupera el video, cortes y transcripción de tu última sesión">♻️ Restaurar último proyecto</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ESTADO B: ESPACIO DE TRABAJO EN 3 COLUMNAS (visible al cargar video) -->
+    <div id="studioWorkspace" class="ux-hidden">
+      <!-- Barra superior compacta de acciones -->
+      <div class="ux-ws-toolbar">
+        <div class="row">
+          <button type="button" class="btn btn-sm" id="wsUploadNewBtn">📁 Nuevo Video</button>
+          <button type="button" class="btn btn-sm btn-green" id="analyzeBtn">🚀 Auto-Analizar IA</button>
+          <button type="button" class="btn btn-sm btn-danger" id="cancelBtn" style="display:none;">⏹ Cancelar</button>
+          <button type="button" class="btn btn-sm" id="toggleYtBtn">🔴 YouTube / Directo</button>
+        </div>
+        <div class="row">
+          <label class="muted" style="margin:0;">Duración:</label>
+          <select id="quickDurSelect" style="width:auto; padding:6px 10px;">
+            <option value="15">15s</option>
+            <option value="30">30s</option>
+            <option value="45" selected>45s</option>
+            <option value="60">60s</option>
+            <option value="90">90s</option>
+            <option value="120">2m</option>
+          </select>
+          <button type="button" class="btn btn-sm btn-amber" id="addManualCutBtn">➕ Corte Aquí</button>
+          <button type="button" class="btn btn-sm" id="togglePipelineBtn" title="Ver progreso del análisis IA">📊 Progreso</button>
+        </div>
+      </div>
+
+      <!-- Pipeline de 4 pasos (oculto cuando está inactivo; se abre automáticamente al analizar) -->
+      <div id="pipelineDrawer" class="ux-pipeline-drawer ux-hidden">
+        <div class="row" style="justify-content:space-between;">
+          <strong style="font-size:0.86rem;">⚡ Progreso del Análisis IA</strong>
+          <button type="button" class="btn btn-sm" id="closePipelineBtn" style="padding:3px 8px;">✕</button>
+        </div>
+        <div class="pipeline">
+          <div class="pipe-step" id="pStep1"><div class="pipe-ico">1</div><div><strong>Fotogramas</strong><div class="muted" id="pSub1">Esperando video</div></div></div>
+          <div class="pipe-step" id="pStep3"><div class="pipe-ico">2</div><div><strong>Audio + Whisper</strong><div class="muted" id="pSub3">En cola</div></div></div>
+          <div class="pipe-step" id="pStep2"><div class="pipe-ico">3</div><div><strong>Cortes (Flash-Lite)</strong><div class="muted" id="pSub2">En cola</div></div></div>
+          <div class="pipe-step" id="pStep4"><div class="pipe-ico">4</div><div><strong>Miniaturas Pro</strong><div class="muted" id="pSub4">En cola</div></div></div>
+        </div>
+        <div class="muted" id="pipelineMsg">Listo para analizar.</div>
+      </div>
+
+      <!-- Cuadrícula principal de 3 columnas -->
+      <div class="ux-workspace-grid">
+        <!-- COLUMNA 1 (IZQUIERDA): Lista de Cortes -->
+        <div class="ux-col-card">
+          <div class="row" style="justify-content:space-between;">
+            <h2 style="margin:0; font-size:0.96rem;">🔥 Cortes Detectados</h2>
+          </div>
+          <div id="cutsContainer" class="muted ux-cuts-scroll">Pulsa "🚀 Auto-Analizar IA" o crea un corte manual.</div>
+          <button type="button" class="btn btn-sm" id="autoScheduleAllBtn" style="width:100%; justify-content:center;">⚡ Auto-Programar Todos</button>
+        </div>
+
+        <!-- COLUMNA 2 (CENTRO): Monitor Vista Previa -->
+        <div class="ux-col-card">
+          <div class="stage-wrap">
+            <canvas id="previewCanvas" width="540" height="960"></canvas>
+            <div class="row" style="width:100%; justify-content:center;">
+              <button type="button" class="btn btn-primary btn-sm" id="playPauseBtn">▶ Reproducir</button>
+              <button type="button" class="btn btn-sm" id="loopCutBtn" style="border-color: var(--green);">🔁 Loop</button>
+              <select id="aspectSelect" style="width:auto; padding:6px 8px;">
+                <option value="9:16">9:16 Vertical</option>
+                <option value="16:9">16:9 Horizontal</option>
+                <option value="1:1">1:1 Cuadrado</option>
+              </select>
+            </div>
+            <input type="range" id="seekBar" min="0" max="100" value="0" step="0.1" />
+            <div class="row" style="width:100%; justify-content:space-between; font-size:.76rem; color:var(--muted);">
+              <span id="timeNow">00:00.0</span>
+              <span id="cutRangeLabel">Corte: 00:00.0 - 00:15.0</span>
+              <span id="timeTotal">00:00.0</span>
+            </div>
+            <div class="row" style="width:100%;">
+              <button type="button" class="btn btn-primary" id="exportClipBtn" style="flex:1; justify-content:center;">⬇️ Descargar Clip</button>
+              <button type="button" class="btn btn-tg" id="studioSendTgBtn" style="flex:1; justify-content:center;">✈️ Enviar a Telegram</button>
+            </div>
+            <div class="row" style="width:100%;">
+              <button type="button" class="btn btn-sm" id="sendCutToSchedBtn" style="flex:1; justify-content:center;">📅 Programar</button>
+            </div>
+            <button type="button" class="btn btn-sm" id="openEditorFromStudioBtn" style="width:100%; justify-content:center;">🎬 Abrir en Editor Avanzado</button>
+          </div>
+
+          <details class="ux-frames-details">
+            <summary>🎞️ Ver fotogramas extraídos del video</summary>
+            <div class="frames-strip" id="framesStrip">
+              <div class="frame-box"></div><div class="frame-box"></div><div class="frame-box"></div><div class="frame-box"></div><div class="frame-box"></div>
+            </div>
+          </details>
+        </div>
+
+        <!-- COLUMNA 3 (DERECHA): Inspector con pestañas (Subtítulos / PNG / Tiempos) -->
+        <div class="ux-col-card ux-col-inspector">
+          <div class="ux-insp-tabs" id="studioInspTabs">
+            <button type="button" class="ux-insp-tab active" data-insp="subs">💬 Subtítulos</button>
+            <button type="button" class="ux-insp-tab" data-insp="png">🧩 Imagen PNG</button>
+            <button type="button" class="ux-insp-tab" data-insp="time">⏱️ Tiempos</button>
+          </div>
+
+          <!-- Pestaña 1: Subtítulos -->
+          <div class="ux-insp-pane active" id="inspPane-subs">
+            <div class="row" style="justify-content:space-between; margin-bottom:10px;">
+              <span class="muted">Sincronización en vivo</span>
+              <span class="badge" id="subsSourceBadge">Modo Local</span>
+            </div>
+            <div class="field-block">
+              <label>Estilo de Subtítulo</label>
+              <select id="subStyleSelect">
+                <option value="word">Palabra por palabra (Karaoke)</option>
+                <option value="viral">Viral Amarillo (Alto CTR)</option>
+                <option value="neon">Neón Cian</option>
+                <option value="box">Caja Blanca Moderna</option>
+                <option value="clean">Cine Limpio</option>
+              </select>
+            </div>
+            <div class="field-block">
+              <label>Texto (una línea por bloque)</label>
+              <textarea id="subsTextarea" rows="7" placeholder="Escribe o edita las frases del corte..."></textarea>
+            </div>
+            <label style="display:flex; align-items:center; gap:6px; margin-bottom:10px; cursor:pointer; color:var(--text);">
+              <input type="checkbox" id="showSubsCheck" checked style="width:auto;" />
+              Mostrar subtítulos en vivo
+            </label>
+            <button type="button" class="btn btn-sm btn-primary" id="applySubsBtn" style="width:100%; justify-content:center;">✅ Aplicar al Corte</button>
+          </div>
+
+          <!-- Pestaña 2: Imagen PNG -->
+          <div class="ux-insp-pane" id="inspPane-png">
+            <div class="row" style="margin-bottom:12px;">
+              <label class="btn btn-sm btn-primary" style="margin:0; cursor:pointer; flex:1; justify-content:center;">
+                🖼️ Subir PNG / Imagen
+                <input type="file" id="pngInput" accept="image/*" hidden />
+              </label>
+              <button type="button" class="btn btn-sm btn-danger" id="clearPngBtn">Quitar</button>
+            </div>
+            <div class="field-block">
+              <label>Fondo / Chroma</label>
+              <select id="chromaSelect">
+                <option value="none">Mantener transparencia PNG</option>
+                <option value="white">Quitar fondo blanco</option>
+                <option value="green">Quitar pantalla verde</option>
+                <option value="black">Quitar fondo negro</option>
+              </select>
+            </div>
+            <div class="range-row"><label>Posición X (%)</label><input type="range" id="pngX" min="5" max="95" value="50" /></div>
+            <div class="range-row"><label>Posición Y (%)</label><input type="range" id="pngY" min="5" max="95" value="22" /></div>
+            <div class="range-row"><label>Tamaño (%)</label><input type="range" id="pngScale" min="10" max="80" value="32" /></div>
+            <div class="muted" style="margin-top:6px;">Tip: también puedes arrastrar la imagen directamente sobre el video.</div>
+          </div>
+
+          <!-- Pestaña 3: Tiempos y Duración -->
+          <div class="ux-insp-pane" id="inspPane-time">
+            <div class="form-grid-2 field-block">
+              <div>
+                <label>Inicio (seg)</label>
+                <input type="number" id="startInput" value="0" step="0.5" min="0" />
+              </div>
+              <div>
+                <label>Fin (seg)</label>
+                <input type="number" id="endInput" value="15" step="0.5" min="1" />
+              </div>
+            </div>
+            <div class="field-block">
+              <label>Duración rápida por corte</label>
+              <div class="chip-row">
+                <button type="button" class="dur-pill" data-dur="15">15s</button>
+                <button type="button" class="dur-pill" data-dur="30">30s</button>
+                <button type="button" class="dur-pill active" data-dur="45">45s</button>
+                <button type="button" class="dur-pill" data-dur="60">60s</button>
+                <button type="button" class="dur-pill" data-dur="90">90s</button>
+              </div>
+            </div>
+            <div class="field-block">
+              <label>Duración personalizada (segundos)</label>
+              <div class="row" style="flex-wrap:nowrap;">
+                <input type="number" id="cutDurationInput" value="45" min="3" max="300" step="1" />
+                <button type="button" class="btn btn-sm btn-primary" id="applyCutDurationBtn">Aplicar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== TAB EN VIVO & RADAR (3 SUB-PESTAÑAS LIMPIAS) ==================== -->
+  <section id="tab-live" class="view">
+    <div class="card" id="ytPanel" style="margin-bottom:0;">
+      <div class="row" style="justify-content:space-between; margin-bottom:12px;">
+        <div>
+          <h2 style="margin:0;">🔴 Centro En Vivo, YouTube &amp; Radar Épico</h2>
+          <div class="muted" style="margin-top:2px;">Captura directos, analiza enlaces de YouTube sin descargar o ajusta el Radar y Telegram.</div>
+        </div>
+        <button type="button" class="btn btn-sm" id="closeYtPanelBtn">← Volver al Estudio</button>
+      </div>
+
+      <div class="live-subtabs" id="liveSubTabs">
+        <button type="button" class="live-subtab active" data-live-sub="capture">📡 Capturar Directo</button>
+        <button type="button" class="live-subtab" data-live-sub="yt">🔗 Cortes de Enlace YT</button>
+        <button type="button" class="live-subtab" data-live-sub="radar">⚙️ Radar &amp; Telegram</button>
+      </div>
+
+      <!-- SUB-PESTAÑA 1: CAPTURAR DIRECTO -->
+      <div class="live-subpane active" id="livePane-capture">
+        <div class="row">
+          <input type="url" id="ytUrlInput" placeholder="Pega el enlace de YouTube o directo (ej. https://www.youtube.com/watch?v=...)" style="flex:1; min-width:240px;" />
+          <button type="button" class="btn btn-primary" id="loadYtEmbedBtn">Cargar Video/Directo</button>
+          <button type="button" class="btn btn-amber" id="ytQuickCutBtn" title="Atajo: tecla K">✂️ Sacar Corte (K)</button>
+        </div>
+
+        <div class="row" style="margin-top:12px; align-items:center;">
+          <button type="button" class="btn btn-danger" id="liveHereBtn">🔴 Capturar directo del enlace</button>
+          <button type="button" class="btn" id="liveStartBtn">Capturar otra pestaña</button>
+          <label class="muted" style="margin:0;">Últimos</label>
+          <select id="liveSecs" style="width:auto;"><option value="45">45 s</option><option value="60">60 s</option><option value="75">75 s</option><option value="90" selected>90 s</option><option value="120">2 min</option><option value="180">3 min</option></select>
+          <label class="muted" style="margin:0;">Auto:</label>
+          <select id="liveAuto" style="width:auto;"><option value="0">Desactivado</option><option value="60">Cada 60 s</option><option value="120">Cada 2 min</option><option value="300">Cada 5 min</option></select>
+          <label class="muted" style="margin:0;">Formato:</label>
+          <select id="liveFormat" style="width:auto;"></select>
+          <button type="button" class="btn" id="liveStopBtn" style="display:none;">⏹ Detener captura</button>
+        </div>
+
+        <details style="margin-top:8px;">
+          <summary class="muted" style="cursor:pointer;">¿Cómo capturar un directo?</summary>
+          <div class="muted" id="liveStatus" style="margin-top:6px;">Pega el enlace arriba, pulsa "Capturar directo del enlace" y en el aviso del navegador elige "Esta pestaña" marcando "Compartir audio". Luego usa "✂️ Sacar Corte (K)" o deja que el Radar corte automáticamente.</div>
+        </details>
+
+        <div id="ytEmbedWrap" style="margin-top:12px; display:none;">
+          <iframe id="ytIframe" width="100%" height="320" style="border-radius:12px; border:1px solid var(--border);" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+        </div>
+
+        <div style="margin-top:14px;">
+          <div class="row" style="justify-content:space-between; margin-bottom:8px;">
+            <strong style="font-size:0.9rem;">🎬 Clips Capturados del Directo</strong>
+            <span class="muted" id="liveClipsCount" style="font-size:0.78rem;">0 clips</span>
+          </div>
+          <div id="liveClips" style="display:grid; gap:8px;">
+            <div class="muted">Aún no hay clips capturados. Inicia la captura de un directo y pulsa <strong>✂️ Sacar Corte (K)</strong> o deja actuar al Radar.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUB-PESTAÑA 2: CORTES DE ENLACE YT (CON SUBTÍTULOS, TAMAÑO Y TIEMPO PERSONALIZADOS) -->
+      <div class="live-subpane" id="livePane-yt">
+        <!-- Barra de conexión al Servidor Automático (yt-dlp + FFmpeg) -->
+        <div class="tg-box" style="margin-top:0; margin-bottom:10px;">
+          <div class="row" style="justify-content:space-between; gap:8px;">
+            <div class="row" style="gap:8px; flex:1; min-width:240px;">
+              <strong style="font-size:0.84rem; white-space:nowrap;">⚡ Motor Automático (Descarga + Corte + Subtítulos):</strong>
+              <input type="url" id="ytBackendUrlInput" value="http://localhost:8000" placeholder="http://localhost:8000 o https://tu-servidor.onrender.com" style="flex:1; min-width:190px;" />
+            </div>
+            <div class="row" style="gap:6px;">
+              <span class="badge" id="ytBackendBadge">Sin probar</span>
+              <button type="button" class="btn btn-sm btn-primary" id="ytBackendCheckBtn">🔄 Probar Motor</button>
+            </div>
+          </div>
+          <div class="muted" id="ytBackendStatusText" style="margin-top:5px; font-size:0.75rem;">Ejecuta <code>python server.py</code> en tu PC (o súbelo a Render/Railway) para descargar y cortar directo sin abrir ventanas ni grabar pantalla.</div>
+        </div>
+
+        <div class="row">
+          <input type="url" id="ytLinkInput2" placeholder="Pega aquí el enlace de YouTube (ej. https://www.youtube.com/watch?v=...)" style="flex:1; min-width:240px;" />
+          <input type="password" id="ytGeminiKeyInput" placeholder="Clave Gemini (AIza...)" autocomplete="off" style="width:210px;" />
+          <button type="button" class="btn btn-green" id="ytAiCutsBtn">✨ Generar cortes IA</button>
+        </div>
+
+        <!-- Configuración de Tamaño, Tiempo y Subtítulos para los cortes de YouTube -->
+        <div class="dur-bar" style="margin-top:10px;">
+          <div class="row" style="gap:8px; width:100%;">
+            <label class="muted" style="margin:0;">📐 Tamaño:</label>
+            <select id="ytAspectSelect" style="width:auto;">
+              <option value="9:16" selected>9:16 Vertical (TikTok / Shorts / Reels)</option>
+              <option value="16:9">16:9 Horizontal (YouTube)</option>
+              <option value="1:1">1:1 Cuadrado (Instagram)</option>
+              <option value="4:5">4:5 Retrato (Feed)</option>
+            </select>
+
+            <label class="muted" style="margin:0;">🎞️ Calidad:</label>
+            <select id="ytResSelect" style="width:auto;">
+              <option value="sd" selected>Estándar (Rápida)</option>
+              <option value="hd">HD (Alta definición)</option>
+            </select>
+
+            <label class="muted" style="margin:0;">⏱️ Tiempo del corte (seg):</label>
+            <input type="number" id="ytCutDurInput" value="45" min="5" max="180" step="5" style="width:76px;" />
+            <div class="row" style="gap:4px;">
+              <button type="button" class="dur-pill yt-dur-pill" data-yt-dur="15">15s</button>
+              <button type="button" class="dur-pill yt-dur-pill" data-yt-dur="30">30s</button>
+              <button type="button" class="dur-pill yt-dur-pill active" data-yt-dur="45">45s</button>
+              <button type="button" class="dur-pill yt-dur-pill" data-yt-dur="60">60s</button>
+              <button type="button" class="dur-pill yt-dur-pill" data-yt-dur="90">90s</button>
+              <button type="button" class="dur-pill yt-dur-pill" data-yt-dur="120">2m</button>
+            </div>
+          </div>
+
+          <div class="row" style="gap:10px; width:100%; margin-top:4px;">
+            <label style="display:flex; align-items:center; gap:5px; margin:0; cursor:pointer; color:var(--text);">
+              <input type="checkbox" id="ytBurnSubsCheck" checked style="width:auto;" />
+              💬 Incrustar subtítulos automáticamente (Whisper)
+            </label>
+            <select id="ytSubStyleSelect" style="width:auto;">
+              <option value="word" selected>Karaoke (Palabra por palabra)</option>
+              <option value="viral">Viral Amarillo</option>
+              <option value="neon">Neón Cian</option>
+              <option value="box">Caja Blanca</option>
+              <option value="clean">Cine Limpio</option>
+            </select>
+            <label style="display:flex; align-items:center; gap:5px; margin:0; cursor:pointer; color:var(--text);">
+              <input type="checkbox" id="ytAutoTgCheck" style="width:auto;" />
+              ✈️ Auto-enviar a Telegram
+            </label>
+            <span class="muted" style="font-size:0.76rem; margin-left:auto;">Tramo opcional: min</span>
+            <input type="number" id="ytFromMin" min="0" placeholder="0" style="width:68px;" />
+            <span class="muted" style="font-size:0.76rem;">a</span>
+            <input type="number" id="ytToMin" min="1" placeholder="fin" style="width:68px;" />
+          </div>
+        </div>
+
+        <details style="margin-top:8px;">
+          <summary class="muted" style="cursor:pointer;">👤 Creador autorizado / Créditos (opcional)</summary>
+          <div class="row" style="margin-top:8px; align-items:center;">
+            <select id="ytCreatorSelect" style="width:auto; min-width:170px;"><option value="">— sin créditos —</option></select>
+            <button type="button" class="btn btn-sm" id="creatorDelBtn" title="Quitar de la lista">🗑</button>
+            <input type="text" id="creatorNameInput" placeholder="Nombre del creador" style="flex:1; min-width:140px;" />
+            <input type="text" id="creatorUrlInput" placeholder="Enlace a su canal" style="flex:1; min-width:160px;" />
+            <button type="button" class="btn btn-sm" id="creatorAddBtn">➕ Añadir</button>
+          </div>
+        </details>
+
+        <div id="ytCutPreviewWrap" style="margin-top:10px; display:none; background:#050811; border:1px solid var(--border); border-radius:12px; padding:10px;">
+          <div class="row" style="justify-content:space-between; margin-bottom:6px;">
+            <strong id="ytCutPreviewTitle" style="font-size:0.85rem;">▶ Vista previa del corte en YouTube</strong>
+            <button type="button" class="btn btn-sm" id="closeYtCutPreviewBtn">✕ Cerrar vista previa</button>
+          </div>
+          <iframe id="ytCutPreviewIframe" width="100%" height="300" style="border-radius:10px; border:1px solid var(--border);" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+        </div>
+
+        <div id="ytCutsList" style="margin-top:10px; display:grid; gap:8px;"></div>
+
+        <div class="row" style="margin-top:10px; align-items:center;">
+          <label class="muted" style="margin:0;">Grabar en:</label>
+          <select id="ytRecMode" style="width:auto;"><option value="popup">Ventana nueva (mejor calidad)</option><option value="page">Esta página</option></select>
+          <button type="button" class="btn btn-sm btn-green" id="ytAutoManualCutBtn" title="Descarga, corta y subtitula automáticamente usando el servidor">⚡ Cortar y Subtitular (Auto)</button>
+          <button type="button" class="btn btn-sm btn-amber" id="ytManualRecBtn" title="Respaldo sin servidor: graba en tiempo real desde la pantalla">🎥 Grabar pantalla manual</button>
+          <span id="ytRecStatus" class="muted"></span>
+          <button type="button" class="btn" id="ytRecStopBtn" style="display:none;">⏹ Detener grabación</button>
+        </div>
+        <div id="ytClipFiles" style="margin-top:8px; display:grid; gap:8px;"></div>
+      </div>
+
+      <!-- SUB-PESTAÑA 3: AJUSTES DE RADAR & TELEGRAM -->
+      <div class="live-subpane" id="livePane-radar">
+        <!-- Radar de Momentos Épicos -->
+        <div class="epic-radar-box" style="margin-top:0;">
+          <div class="row" style="justify-content:space-between;">
+            <strong style="font-size:0.88rem;">🔥 Radar de Momentos Épicos (En Vivo &amp; IA)</strong>
+            <div class="row" style="gap:8px;">
+              <span class="muted" style="font-size:0.75rem;">Voz:</span>
+              <div class="audio-meter-wrap" title="Nivel de voz humana del directo en tiempo real">
+                <div class="audio-meter-fill" id="liveAudioMeter"></div>
+              </div>
+              <span class="badge" id="liveRadarBadge">En espera</span>
+            </div>
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <label class="muted" style="margin:0;">Detección en vivo:</label>
+            <select id="liveEpicMode" style="width:auto;">
+              <option value="ai" selected>🧠 IA + Audio (Whisper + Gemini — todas las emociones)</option>
+              <option value="audio">⚡ Solo Picos de Voz ($0 — risas, gritos, peleas)</option>
+              <option value="off">Desactivado (solo cortes manuales)</option>
+            </select>
+            <label class="muted" style="margin:0;">Analizar cada:</label>
+            <select id="liveEpicInterval" style="width:auto;">
+              <option value="30" selected>30 s</option>
+              <option value="45">45 s</option>
+              <option value="60">60 s</option>
+            </select>
+            <label class="muted" style="margin:0;">Exigencia:</label>
+            <select id="liveEpicMinScore" style="width:auto;" title="Puntaje mínimo de IA para aprobar un corte automático">
+              <option value="65">Flexible (65+)</option>
+              <option value="75" selected>Equilibrado (75+)</option>
+              <option value="85">Solo Oro (85+)</option>
+            </select>
+          </div>
+          <div class="form-grid-2" style="margin-top:8px;">
+            <input type="text" id="liveEpicContext" placeholder="Contexto del directo (ej: Podcast de humor y farándula)" />
+            <input type="text" id="liveEpicKeywords" placeholder="Palabras gatillo (ej: no puede ser, mentira, jajaja, escúchame)" />
+          </div>
+          <div class="row" style="justify-content:space-between; margin-top:8px;">
+            <span class="muted" style="font-size:0.75rem;">Reacciones y momentos a detectar:</span>
+            <div class="row" style="gap:6px;">
+              <button type="button" class="btn btn-sm" id="emoSelectAllBtn" style="padding:3px 8px; font-size:0.73rem;">✓ Todas</button>
+              <button type="button" class="btn btn-sm" id="emoPresetPartyBtn" style="padding:3px 8px; font-size:0.73rem;">🎉 Fiesta &amp; Risas</button>
+              <button type="button" class="btn btn-sm" id="emoPresetDeepBtn" style="padding:3px 8px; font-size:0.73rem;">🧠 Serio &amp; Reflexión</button>
+            </div>
+          </div>
+          <div class="epic-pills" id="epicEmotionPills" title="Elige qué tipos de momentos y reacciones buscar">
+            <button type="button" class="emo-pill active" data-emo="risa">😂 Risas y Chistes</button>
+            <button type="button" class="emo-pill active" data-emo="feliz">😊 Felicidad</button>
+            <button type="button" class="emo-pill active" data-emo="fiesta">🎉 Fiesta / Baile</button>
+            <button type="button" class="emo-pill active" data-emo="pelea">🤬 Discusión / Pelea</button>
+            <button type="button" class="emo-pill active" data-emo="serio">😐 Momento Serio</button>
+            <button type="button" class="emo-pill active" data-emo="reflexion">🧠 Reflexión</button>
+            <button type="button" class="emo-pill active" data-emo="tristeza">😢 Tristeza</button>
+            <button type="button" class="emo-pill active" data-emo="sorpresa">😱 Sorpresa / Shock</button>
+            <button type="button" class="emo-pill active" data-emo="reaccion">🤯 Reacción / Fail</button>
+            <button type="button" class="emo-pill active" data-emo="salseo">👀 Chisme / Polémica</button>
+            <button type="button" class="emo-pill active" data-emo="inspiracion">💡 Motivación / Consejo</button>
+            <button type="button" class="emo-pill active" data-emo="amor">❤️ Cariño / Tierno</button>
+          </div>
+          <div class="muted" id="liveRadarStatus" style="margin-top:6px; font-size:0.78rem;">Activa las emociones que quieras cazar. Se aplican al directo en vivo, a enlaces de YouTube y al Auto-Análisis IA.</div>
+        </div>
+
+        <!-- Configuración de envío automático a Telegram con subtítulos + Mini Historial -->
+        <div class="tg-box">
+          <div class="row" style="justify-content:space-between; margin-bottom:8px;">
+            <strong style="font-size:0.86rem;">✈️ Envío a Telegram (con Subtítulos)</strong>
+            <span class="badge" id="tgBadge">Sin configurar</span>
+          </div>
+          <div class="form-grid-2" style="margin-bottom:8px;">
+            <div class="input-group">
+              <input type="password" id="tgBotTokenInput" placeholder="Bot Token (de @BotFather)" autocomplete="off" />
+              <button type="button" class="btn btn-sm" data-toggle-vis="tgBotTokenInput" title="Mostrar u ocultar">👁️</button>
+            </div>
+            <input type="text" id="tgChatIdInput" placeholder="Chat ID o @canal (ej. 646422028)" />
+          </div>
+          <div class="row" style="justify-content:space-between; gap:8px;">
+            <div class="row" style="gap:10px;">
+              <label style="display:flex; align-items:center; gap:5px; margin:0; cursor:pointer; color:var(--text);">
+                <input type="checkbox" id="tgAutoSendCheck" checked style="width:auto;" />
+                Auto-enviar épicos
+              </label>
+              <label style="display:flex; align-items:center; gap:5px; margin:0; cursor:pointer; color:var(--text);">
+                <input type="checkbox" id="tgBurnSubsCheck" checked style="width:auto;" />
+                Quemar subtítulos en video
+              </label>
+              <label style="display:flex; align-items:center; gap:5px; margin:0; cursor:pointer; color:var(--text);">
+                <input type="checkbox" id="tgSendSrtCheck" style="width:auto;" />
+                Adjuntar .SRT
+              </label>
+            </div>
+            <div class="row" style="gap:6px;">
+              <button type="button" class="btn btn-sm" id="tgTestBtn">⚡ Probar</button>
+              <button type="button" class="btn btn-sm btn-tg" id="tgSaveBtn">💾 Guardar Telegram</button>
+            </div>
+          </div>
+          <div class="muted" id="tgStatusText" style="margin-top:6px; font-size:0.77rem;">Guarda tu Bot Token y Chat ID aquí para recibir cada corte con subtítulos automáticamente.</div>
+
+          <div style="margin-top:10px; padding-top:8px; border-top:1px solid rgba(56,189,248,0.18);">
+            <div class="row" style="justify-content:space-between;">
+              <span class="muted" style="font-size:0.75rem; font-weight:700;">📜 Últimos 5 envíos a Telegram</span>
+              <button type="button" class="btn btn-sm" id="tgClearHistoryBtn" style="padding:2px 7px; font-size:0.72rem;">Limpiar</button>
+            </div>
+            <div id="tgHistoryList" class="tg-history-list">
+              <div class="muted" style="font-size:0.75rem;">Sin envíos recientes todavía.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== TAB 2: EDITOR DE VIDEO (UX SIMPLIFICADA) ==================== -->
+  <section id="tab-editor" class="view">
+    <div class="ux-ws-toolbar">
+      <div class="row">
+        <strong style="font-size:0.98rem;">🎬 Editor Local ($0 Tokens)</strong>
+        <span class="muted">Todos los cambios se aplican en vivo al exportar</span>
+      </div>
+      <div class="row">
+        <span class="kbd-pill" title="Atajos activos en Estudio y Editor">⌨️ <kbd>Espacio</kbd> Play · <kbd>I</kbd>/<kbd>O</kbd> Corte · <kbd>←</kbd><kbd>→</kbd> ±1s · <kbd>S</kbd> Dividir · <kbd>K</kbd> En Vivo</span>
+        <button type="button" class="btn btn-sm btn-green" id="edSaveBrandBtn" title="Guarda tu marca de agua, estilo de subtítulos, formato y color para futuras sesiones">💾 Guardar Plantilla</button>
+        <button type="button" class="btn btn-sm" id="edResetBtn">🔄 Restablecer</button>
+        <button type="button" class="btn btn-sm btn-tg" id="edSendTgBtn">✈️ Enviar a Telegram</button>
+        <button type="button" class="btn btn-sm btn-primary" id="edExportBtn">⬇️ Exportar Video Editado</button>
+      </div>
+    </div>
+
+    <div class="ux-editor-layout">
+      <!-- IZQUIERDA: Monitor y Línea de Tiempo -->
+      <div class="ux-col-card">
+        <div class="stage-wrap">
+          <canvas id="editorCanvas" width="540" height="960"></canvas>
+
+          <div class="row" style="width:100%; justify-content:center;">
+            <button type="button" class="btn btn-primary btn-sm" id="edPlayPauseBtn">▶ Reproducir</button>
+            <button type="button" class="btn btn-sm" id="edLoopCutBtn" style="border-color: var(--green);">🔁 Loop</button>
+            <select id="edAspectSelect" style="width:auto; padding:6px 8px;">
+              <option value="9:16">9:16 Vertical</option>
+              <option value="16:9">16:9 Horizontal</option>
+              <option value="1:1">1:1 Cuadrado</option>
+            </select>
+          </div>
+
+          <div class="timeline-box">
+            <div class="row" style="justify-content:space-between; font-size:.76rem; color:var(--muted); margin-bottom:6px;">
+              <span id="edTimeNow">00:00.0</span>
+              <span id="edCutRangeLabel">Corte: 00:00.0 - 00:15.0</span>
+              <span id="edTimeTotal">00:00.0</span>
+            </div>
+            <div class="timeline-track" id="timelineTrack" title="Haz clic o arrastra para moverte por el video">
+              <div class="timeline-selection" id="timelineSelection"></div>
+              <div class="timeline-playhead" id="timelinePlayhead"></div>
+            </div>
+            <div class="row" style="margin-top:10px; justify-content:center;">
+              <button type="button" class="btn btn-sm" id="edMarkStartBtn">⏮️ Inicio</button>
+              <button type="button" class="btn btn-sm" id="edMarkEndBtn">⏭️ Fin</button>
+              <button type="button" class="btn btn-sm btn-amber" id="edSplitCutBtn">✂️ Dividir</button>
+              <button type="button" class="btn btn-sm btn-primary" id="edSaveNewCutBtn">💾 Guardar Corte</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DERECHA: Inspector de Herramientas con 4 Pestañas -->
+      <div class="ux-col-card">
+        <div class="ux-insp-tabs" id="edInspTabs">
+          <button type="button" class="ux-insp-tab active" data-ed-tab="audio">⚡ Audio</button>
+          <button type="button" class="ux-insp-tab" data-ed-tab="frame">📐 Encuadre</button>
+          <button type="button" class="ux-insp-tab" data-ed-tab="color">🎨 Color</button>
+          <button type="button" class="ux-insp-tab" data-ed-tab="brand">🏷️ Textos</button>
+        </div>
+
+        <!-- 1. Velocidad, Audio y Duración -->
+        <div class="ux-ed-pane active" id="edPane-audio">
+          <div class="field-block">
+            <label>Duración rápida del corte (segundos)</label>
+            <div class="chip-row">
+              <button type="button" class="dur-pill" data-dur="15">15s</button>
+              <button type="button" class="dur-pill" data-dur="30">30s</button>
+              <button type="button" class="dur-pill active" data-dur="45">45s</button>
+              <button type="button" class="dur-pill" data-dur="60">60s</button>
+              <button type="button" class="dur-pill" data-dur="90">90s</button>
+            </div>
+          </div>
+          <div class="field-block">
+            <label>Velocidad de reproducción</label>
+            <select id="edSpeedSelect">
+              <option value="0.5">0.5x (Cámara lenta)</option>
+              <option value="0.75">0.75x (Suave)</option>
+              <option value="1" selected>1.0x (Normal)</option>
+              <option value="1.25">1.25x (Dinámico)</option>
+              <option value="1.5">1.5x (Rápido)</option>
+              <option value="2">2.0x (Muy rápido)</option>
+            </select>
+          </div>
+          <div class="range-row">
+            <div class="range-head"><span>Volumen del video</span><span id="edVolumeVal">100%</span></div>
+            <input type="range" id="edVolumeRange" min="0" max="100" value="100" />
+          </div>
+          <button type="button" class="btn btn-sm" id="edMuteBtn" style="width:100%; justify-content:center; margin-top:6px;">🔊 Audio Activo (Clic para silenciar)</button>
+        </div>
+
+        <!-- 2. Encuadre, Zoom y Giro -->
+        <div class="ux-ed-pane" id="edPane-frame">
+          <div class="range-row">
+            <div class="range-head"><span>Zoom</span><span id="edZoomVal">100%</span></div>
+            <input type="range" id="edZoomRange" min="100" max="220" value="100" />
+          </div>
+          <div class="range-row">
+            <div class="range-head"><span>Desplazar Horizontal (X)</span><span id="edPanXVal">0%</span></div>
+            <input type="range" id="edPanXRange" min="-50" max="50" value="0" />
+          </div>
+          <div class="range-row">
+            <div class="range-head"><span>Desplazar Vertical (Y)</span><span id="edPanYVal">0%</span></div>
+            <input type="range" id="edPanYRange" min="-50" max="50" value="0" />
+          </div>
+          <div class="row" style="margin-top:12px;">
+            <button type="button" class="btn btn-sm" id="edRotateBtn" style="flex:1; justify-content:center;">🔄 Girar 90°</button>
+            <button type="button" class="btn btn-sm" id="edFlipXBtn" style="flex:1; justify-content:center;">↔️ Espejo</button>
+          </div>
+        </div>
+
+        <!-- 3. Color y Filtros -->
+        <div class="ux-ed-pane" id="edPane-color">
+          <div class="field-block">
+            <label>Preset de Color</label>
+            <select id="edFilterPreset">
+              <option value="none">Original (Sin filtro)</option>
+              <option value="cine">Cine Pro (Alto contraste)</option>
+              <option value="vibrant">Viral Vibrante (+Color)</option>
+              <option value="warm">Cálido Sunset</option>
+              <option value="bw">Blanco y Negro Dramático</option>
+              <option value="cyber">Noche Cyber</option>
+            </select>
+          </div>
+          <div class="range-row">
+            <div class="range-head"><span>Brillo</span><span id="edBrightVal">100%</span></div>
+            <input type="range" id="edBrightRange" min="50" max="160" value="100" />
+          </div>
+          <div class="range-row">
+            <div class="range-head"><span>Contraste</span><span id="edContrastVal">100%</span></div>
+            <input type="range" id="edContrastRange" min="50" max="180" value="100" />
+          </div>
+          <div class="range-row">
+            <div class="range-head"><span>Saturación</span><span id="edSatVal">100%</span></div>
+            <input type="range" id="edSatRange" min="0" max="200" value="100" />
+          </div>
+        </div>
+
+        <!-- 4. Gancho Superior y Marca de Agua -->
+        <div class="ux-ed-pane" id="edPane-brand">
+          <div class="field-block">
+            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:#e2e8f0;">
+              <input type="checkbox" id="edShowHookCheck" style="width:auto;" />
+              Mostrar barra de gancho superior
+            </label>
+            <input type="text" id="edHookInput" placeholder="Ej: ¡NO VAS A CREER EL FINAL! 🔥" style="margin-top:6px;" />
+          </div>
+          <div class="field-block">
+            <label>Color de la barra superior</label>
+            <select id="edHookColorSelect">
+              <option value="#f59e0b">Ámbar Viral</option>
+              <option value="#ef4444">Rojo Alerta</option>
+              <option value="#0ea5e9">Azul Eléctrico</option>
+              <option value="#8b5cf6">Violeta Pro</option>
+              <option value="#10b981">Verde Éxito</option>
+            </select>
+          </div>
+          <div class="form-grid-2 field-block">
+            <div>
+              <label>Marca de agua (@Usuario)</label>
+              <input type="text" id="edWatermarkInput" placeholder="@TuCanal" />
+            </div>
+            <div>
+              <label>Posición</label>
+              <select id="edWatermarkPos">
+                <option value="tr">Arriba Der.</option>
+                <option value="tl">Arriba Izq.</option>
+                <option value="br">Abajo Der.</option>
+                <option value="bl">Abajo Izq.</option>
+              </select>
+            </div>
+          </div>
+          <div class="range-row">
+            <div class="range-head"><span>Opacidad marca de agua</span><span id="edWmOpVal">75%</span></div>
+            <input type="range" id="edWatermarkOpacity" min="15" max="100" value="75" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== TAB 3: MINIATURAS IA ==================== -->
+  <section id="tab-thumbs" class="view">
+    <div class="card">
+      <div class="row" style="justify-content:space-between; margin-bottom:12px;">
+        <div>
+          <h2 id="thumbTabTitle" style="margin-bottom:4px;">🎨 Miniaturas Económicas (Canvas $0 o FLUX.1 [schnell] $0.003)</h2>
+          <div id="thumbTabSubtitle" class="muted">Usa tu motor local de 6 estilos a costo cero o genera miniaturas IA con <strong>FLUX.1 [schnell]</strong> aprovechando el prompt ya creado por Gemini Flash-Lite.</div>
+        </div>
+        <button type="button" class="btn btn-purple" id="regenThumbsBtn">✨ Generar 3 Miniaturas Nuevas</button>
+      </div>
+      <div class="row">
+        <div style="flex:1; min-width:200px;">
+          <label>Motor de Miniaturas</label>
+          <select id="thumbEngineQuickSelect">
+            <option value="canvas">🎨 Canvas Dinámico Local ($0.00 / Gratis)</option>
+            <option value="fal">⚡ FLUX.1 [schnell] vía fal.ai ($0.003 / img)</option>
+            <option value="provider">🤖 Proveedor Avanzado (Gemini / OpenAI)</option>
+          </select>
+        </div>
+        <div style="flex:1; min-width:200px;">
+          <label>Dirección de Arte</label>
+          <select id="thumbMoodSelect">
+            <option value="random">🎲 Aleatorio (3 estilos completamente distintos)</option>
+            <option value="viral">⚡ Ultra Viral Alto Contraste (Estilo YouTube Pro)</option>
+            <option value="cinema">🎬 Póster Cinematográfico Dramático</option>
+            <option value="cyber">🌃 Neón Cyberpunk &amp; Energía</option>
+            <option value="mystery">🕵️ Misterio / Documental Suspenso</option>
+            <option value="comic">💥 Cómic Pop-Art Dinámico</option>
+            <option value="luxury">✨ Editorial Lujo Dorado</option>
+          </select>
+        </div>
+        <div style="flex:1.5; min-width:220px;">
+          <label>Idea o toque visual extra (Opcional)</label>
+          <input type="text" id="thumbCustomIdea" placeholder="Ej: expresión épica, rayos de luz, fondo explosivo..." />
+        </div>
+      </div>
+      <div class="test-box" id="thumbDiagBox"></div>
+    </div>
+    <div class="grid-3" id="thumbsGrid">
+      <div class="card muted">Analiza un video en el Estudio de Cortes para generar automáticamente 3 miniaturas únicas.</div>
+    </div>
+  </section>
+
+  <!-- ==================== TAB 4: REDES & CALENDARIO (UX SIMPLIFICADA) ==================== -->
+  <section id="tab-social" class="view">
+    <details class="ux-accounts-details" open>
+      <summary class="ux-accounts-summary">
+        <div class="row">
+          <strong style="font-size:0.96rem;">🔗 Cuentas Conectadas (API / Webhook / Perfil)</strong>
+          <span class="muted">Haz clic aquí para plegar o desplegar</span>
+        </div>
+        <button type="button" class="btn btn-sm" id="verifyAllAccountsBtn">⚡ Verificar Conexiones</button>
+      </summary>
+      <div class="ux-accounts-grid" id="accountsGrid"></div>
+    </details>
+
+    <div class="ux-social-workspace">
+      <!-- IZQUIERDA: Programar Nueva Publicación -->
+      <div class="ux-col-card">
+        <div class="row" style="justify-content:space-between;">
+          <h2 style="margin:0; font-size:0.98rem;">📅 Programar Publicación</h2>
+          <span class="badge amber" id="schedGateBadge">🔒 Conecta una red</span>
+        </div>
+
+        <div class="test-box show err" id="schedConnBanner" style="margin:0;">
+          <div class="row" style="justify-content:space-between;">
+            <span id="schedConnBannerText">⚠️ Debes conectar <strong>YouTube Shorts</strong> antes de programar.</span>
+            <button type="button" class="btn btn-sm btn-amber" id="schedQuickConnectBtn">🔗 Conectar</button>
+          </div>
+        </div>
+
+        <div class="field-block" style="margin-bottom:0;">
+          <label>Título / Corte</label>
+          <input type="text" id="schedTitle" placeholder="Ej: El momento clave que nadie vio" />
+        </div>
+
+        <div class="form-grid-2">
+          <div>
+            <label>Plataforma</label>
+            <select id="schedPlatform">
+              <option value="YouTube Shorts">YouTube Shorts</option>
+              <option value="Instagram Reels">Instagram Reels</option>
+              <option value="TikTok">TikTok</option>
+              <option value="Facebook Reels">Facebook Reels</option>
+              <option value="X (Twitter)">X (Twitter)</option>
+            </select>
+          </div>
+          <div>
+            <label>Fecha y Hora</label>
+            <input type="datetime-local" id="schedDate" />
+          </div>
+        </div>
+
+        <div class="field-block" style="margin-bottom:0;">
+          <div class="row" style="justify-content:space-between; margin-bottom:4px;">
+            <label style="margin:0;">Descripción y Hashtags</label>
+            <button type="button" class="btn btn-sm" id="genDynamicCopyBtn" style="padding:4px 9px;">✨ Variar Copy (IA)</button>
+          </div>
+          <textarea id="schedCaption" rows="4" placeholder="Copy atractivo para la red social..."></textarea>
+        </div>
+
+        <button type="button" class="btn btn-green" id="addScheduleBtn" style="width:100%; justify-content:center;">📌 Guardar en Calendario</button>
+      </div>
+
+      <!-- DERECHA: Cola de Publicaciones Programadas -->
+      <div class="ux-col-card">
+        <div class="row" style="justify-content:space-between;">
+          <h2 style="margin:0; font-size:0.98rem;">🗓️ Cola Programada</h2>
+          <span class="badge green" id="schedCountBadge">0 programadas</span>
+        </div>
+        <div id="scheduleList" class="muted ux-sched-scroll">No hay publicaciones programadas todavía.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== TAB VISUALIZADOR DE CORTES (ESTILO YOUTUBE 3 COLUMNAS) ==================== -->
+  <section id="tab-viewer" class="view">
+    <div class="ux-ws-toolbar">
+      <div class="row" style="gap:10px;">
+        <strong style="font-size:1rem;">📺 Visualizador de Cortes</strong>
+        <span class="badge" id="viewerCountBadge">0 clips</span>
+        <div class="row" id="viewerFilterPills" style="gap:5px;">
+          <button type="button" class="dur-pill active" data-vfilter="all">Todos</button>
+          <button type="button" class="dur-pill" data-vfilter="live">🔴 En Vivo</button>
+          <button type="button" class="dur-pill" data-vfilter="yt">🔗 YouTube</button>
+          <button type="button" class="dur-pill" data-vfilter="studio">✂️ Exportados</button>
+        </div>
+      </div>
+      <div class="row">
+        <input type="file" id="viewerLocalFileInput" accept="video/*" multiple hidden />
+        <button type="button" class="btn btn-sm btn-tg" id="viewerTopSendTgBtn">✈️ Enviar a Telegram</button>
+        <button type="button" class="btn btn-sm btn-primary" id="viewerAddLocalBtn">📁 Abrir video local</button>
+        <button type="button" class="btn btn-sm btn-danger" id="viewerClearAllBtn">🗑️ Vaciar lista</button>
+      </div>
+    </div>
+
+    <!-- REPRODUCTOR TEATRO (se despliega arriba al hacer clic en cualquier tarjeta) -->
+    <div id="viewerTheater" class="viewer-theater">
+      <div class="row" style="justify-content:space-between; margin-bottom:10px;">
+        <div class="row" style="gap:8px;">
+          <strong id="viewerClipTitle" style="font-size:1rem;">Título del corte</strong>
+          <div class="row" id="viewerClipBadges" style="gap:5px;"></div>
+        </div>
+        <button type="button" class="btn btn-sm" id="viewerCloseTheaterBtn">✕ Cerrar reproductor</button>
+      </div>
+
+      <div class="viewer-theater-grid">
+        <div>
+          <div class="viewer-video-box" id="viewerVideoBox">
+            <div id="viewerEmptyStage" class="viewer-empty-stage" style="display:none;"></div>
+            <video id="viewerVideo" class="viewer-video" controls playsinline></video>
+          </div>
+          <div class="row" style="justify-content:space-between; margin-top:10px;">
+            <div class="row" style="gap:6px;">
+              <button type="button" class="btn btn-sm" id="viewerPrevBtn" title="Corte anterior">⏮️ Anterior</button>
+              <button type="button" class="btn btn-sm btn-primary" id="viewerPlayBtn">▶ Reproducir</button>
+              <button type="button" class="btn btn-sm" id="viewerNextBtn" title="Siguiente corte">Siguiente ⏭️</button>
+            </div>
+            <div class="row" style="gap:6px;">
+              <button type="button" class="btn btn-sm" id="viewerLoopBtn" style="border-color:var(--green);">🔁 Bucle</button>
+              <select id="viewerSpeedSelect" style="width:auto; padding:5px 8px;">
+                <option value="0.75">0.75x</option>
+                <option value="1" selected>1.0x</option>
+                <option value="1.25">1.25x</option>
+                <option value="1.5">1.5x</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div id="viewerMetaCard" style="display:flex; flex-direction:column; gap:10px; background:#0b1222; border:1px solid var(--border); border-radius:12px; padding:12px;">
+          <div class="muted" id="viewerClipInfo" style="font-size:0.82rem; line-height:1.45;"></div>
+          <div id="viewerClipSubs" class="viewer-subs-box" style="display:none;"></div>
+          <div class="row" style="gap:8px; margin-top:auto;">
+            <button type="button" class="btn btn-sm btn-tg" id="viewerSendTgBtn" style="flex:1; justify-content:center;">✈️ Enviar a Telegram</button>
+            <button type="button" class="btn btn-sm btn-green" id="viewerDownloadBtn" style="flex:1; justify-content:center;">⬇️ Descargar</button>
+          </div>
+          <div class="row" style="gap:8px;">
+            <button type="button" class="btn btn-sm btn-primary" id="viewerLoadStudioBtn" style="flex:1; justify-content:center;">✂️ Abrir en Estudio</button>
+            <button type="button" class="btn btn-sm btn-danger" id="viewerDeleteOneBtn">🗑️ Eliminar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GRILLA ESTILO YOUTUBE (3 COLUMNAS) -->
+    <div id="viewerClipsList" class="yt-gallery-grid">
+      <div class="viewer-empty-grid">
+        <div style="font-size:2.4rem; margin-bottom:8px;">📺</div>
+        <strong style="color:var(--text); font-size:1rem;">Aún no tienes cortes para visualizar</strong>
+        <div class="muted" style="margin-top:6px;">Cuando saques un corte en <strong>En Vivo</strong>, generes uno desde un enlace de <strong>YouTube</strong> o exportes desde el <strong>Estudio</strong>, aparecerá aquí con su miniatura listo para ver y enviar a Telegram.</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Toast de mensajes -->
+<div id="toastBox"></div>
+
+<!-- Modal Configuración de IA (Stack Optimizado + Multi-IA + Modo Cloud) -->
+<div class="modal-bg" id="aiModal">
+  <div class="modal modal-lg">
+    <div class="row" style="justify-content:space-between; margin-bottom:10px;">
+      <h2 id="aiModalTitle" style="margin:0;">⚡ Configurar APIs de IA Optimizadas</h2>
+      <span class="badge" id="aiVisionBadge">-92% Costo en Tokens</span>
+    </div>
+
+    <!-- Panel SaaS Público (oculto en modo manual) -->
+    <div id="aiPanePublic" style="display:none;">
+      <p class="muted" style="margin-bottom:12px;">Tus funciones de IA operan de forma segura a través del servidor proxy configurado.</p>
+      <div class="stack-card">
+        <div class="stack-card-head">
+          <strong>☁️ Estado de los Servicios Cloud</strong>
+          <button type="button" class="btn btn-sm btn-primary" id="recheckPublicAiBtn">🔄 Verificar</button>
+        </div>
+        <div id="publicStatusList" class="muted">Comprobando estado del servidor...</div>
+      </div>
+      <div class="field-block">
+        <label>Motor de Miniaturas preferido</label>
+        <select id="publicThumbEngineSelect">
+          <option value="canvas">🎨 Diseño Rápido Local (Instantáneo)</option>
+          <option value="fal">⚡ Generación Creativa con IA (FLUX.1)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="modal-tabs" id="aiModalTabs">
+      <button type="button" class="modal-tab active" data-ai-tab="stack">🚀 Stack Optimizado (Recomendado)</button>
+      <button type="button" class="modal-tab" data-ai-tab="advanced">🔧 Proveedor Avanzado / Otro LLM</button>
+    </div>
+
+    <!-- PESTAÑA 1: STACK OPTIMIZADO (Groq Whisper + Gemini 2.5 Flash-Lite + FLUX.1 Schnell + Proxy) -->
+    <div id="aiPaneStack">
+      <p class="muted" style="margin-bottom:12px;">Combina APIs especializadas para pagar menos de <strong>$0.02 USD por video</strong>. Todo se guarda localmente en tu navegador (modo BYOK) o mediante tu <strong>Proxy URL</strong>.</p>
+
+      <!-- 1. Groq Whisper -->
+      <div class="stack-card">
+        <div class="stack-card-head">
+          <strong>🎙️ 1. Subtítulos Reales — Groq Whisper Turbo ($0.04 / hora)</strong>
+          <a class="stack-link" href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Obtener clave Groq ↗</a>
+        </div>
+        <div class="input-group">
+          <input type="password" id="groqKeyInput" placeholder="gsk_... (Extrae audio WAV 16kHz y transcribe con marcas de tiempo)" autocomplete="off" />
+          <button type="button" class="btn btn-sm" data-toggle-vis="groqKeyInput" title="Mostrar u ocultar">👁️</button>
+        </div>
+      </div>
+
+      <!-- 2. Gemini 2.5 Flash-Lite -->
+      <div class="stack-card">
+        <div class="stack-card-head">
+          <strong>✂️ 2. Cortes Emocionantes — Gemini 2.5 Flash-Lite ($0.10 / 1M tokens)</strong>
+          <a class="stack-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Obtener clave Gemini ↗</a>
+        </div>
+        <div class="input-group">
+          <input type="password" id="stackGeminiKeyInput" placeholder="AIzaSy... (Analiza solo el texto transcrito, nunca video crudo)" autocomplete="off" />
+          <button type="button" class="btn btn-sm" data-toggle-vis="stackGeminiKeyInput" title="Mostrar u ocultar">👁️</button>
+        </div>
+      </div>
+
+      <!-- 3. Miniaturas: Canvas $0 o FLUX.1 Schnell -->
+      <div class="stack-card">
+        <div class="stack-card-head">
+          <strong>🖼️ 3. Miniaturas — Canvas ($0) o FLUX.1 [schnell] ($0.003 / img)</strong>
+          <a class="stack-link" href="https://fal.ai/dashboard/keys" target="_blank" rel="noopener noreferrer">Obtener clave fal.ai ↗</a>
+        </div>
+        <div class="form-grid-2">
+          <div>
+            <label>Motor por defecto</label>
+            <select id="thumbEngineSelect">
+              <option value="canvas">🎨 Canvas Dinámico Local ($0.00)</option>
+              <option value="fal">⚡ FLUX.1 [schnell] vía fal.ai ($0.003)</option>
+              <option value="provider">🤖 Proveedor Avanzado (Pestaña 2)</option>
+            </select>
+          </div>
+          <div>
+            <label>fal.ai API Key (solo si usas FLUX)</label>
+            <div class="input-group">
+              <input type="password" id="falKeyInput" placeholder="key_id:key_secret" autocomplete="off" />
+              <button type="button" class="btn btn-sm" data-toggle-vis="falKeyInput" title="Mostrar u ocultar">👁️</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Proxy propio para producción comercial -->
+      <div class="stack-card">
+        <div class="stack-card-head">
+          <strong>🛡️ 4. Proxy URL para Producción Comercial (Opcional)</strong>
+          <span class="badge">Cloudflare Worker</span>
+        </div>
+        <input type="url" id="proxyUrlInput" placeholder="https://tu-worker.tu-usuario.workers.dev (enruta /api/transcribe, /api/analyze-cuts, /api/thumbnail)" />
+        <div class="security-note">
+          🔒 <strong>Seguridad:</strong> En uso personal o GitHub Pages (BYOK), tus claves quedan en tu navegador. Si vendes suscripciones a clientes, usa un <strong>Proxy URL</strong> para guardar tus claves en servidor y nunca exponerlas en el HTML.
+        </div>
+      </div>
+
+      <div class="row" style="justify-content:flex-end; margin-top:8px;">
+        <button type="button" class="btn btn-sm btn-primary" id="testStackBtn">⚡ Probar Stack Optimizado</button>
+      </div>
+    </div>
+
+    <!-- PESTAÑA 2: PROVEEDOR AVANZADO / OTRO LLM -->
+    <div id="aiPaneAdvanced" style="display:none;">
+      <p class="muted" style="margin-bottom:12px;">Si prefieres usar otro proveedor de texto para detectar cortes o redactar copies (OpenAI, OpenRouter, Claude, DeepSeek, Grok u Ollama local), configúralo aquí.</p>
+
+      <div class="form-grid-2 field-block">
+        <div>
+          <label>Proveedor de IA (Cortes / Copy)</label>
+          <select id="aiProviderSelect">
+            <option value="gemini">Google Gemini (Recomendado: 2.5 Flash-Lite)</option>
+            <option value="openai">OpenAI (GPT-4o-mini / DALL-E 3)</option>
+            <option value="openrouter">OpenRouter (Claude, Llama, DeepSeek...)</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="groq">Groq (Llama 3.3)</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="xai">xAI (Grok)</option>
+            <option value="custom">Personalizada (OpenAI Compatible / Ollama)</option>
+          </select>
+        </div>
+        <div>
+          <label>Modelo</label>
+          <input type="text" id="aiModelInput" list="aiModelSuggestions" placeholder="Ej: gemini-flash-lite-latest" />
+          <datalist id="aiModelSuggestions"></datalist>
+        </div>
+      </div>
+
+      <div class="field-block">
+        <label>API Key / Bearer Token del Proveedor</label>
+        <div class="input-group">
+          <input type="password" id="apiKeyInput" placeholder="Pega tu token o clave API aquí..." autocomplete="off" />
+          <button type="button" class="btn btn-sm" id="toggleAiKeyVis" title="Mostrar u ocultar token">👁️</button>
+        </div>
+      </div>
+
+      <div class="field-block">
+        <label>URL del Endpoint (Automática o Personalizada)</label>
+        <input type="url" id="aiBaseUrlInput" placeholder="https://..." />
+      </div>
+
+      <div class="row" style="justify-content:space-between;">
+        <a id="aiPortalLink" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" class="muted" style="color:var(--accent); text-decoration:none; font-weight:600;">🔑 Obtener API Key de este proveedor ↗</a>
+        <div class="row">
+          <button type="button" class="btn btn-sm" id="detectModelsBtn">🔍 Detectar Modelos</button>
+          <button type="button" class="btn btn-sm btn-primary" id="testAiBtn">⚡ Probar Conexión</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="test-box" id="aiTestResult"></div>
+
+    <div class="row" style="margin-top:16px; justify-content:space-between;">
+      <button type="button" class="btn btn-sm btn-danger" id="clearAiKeyBtn">🗑️ Limpiar Claves</button>
+      <div class="row">
+        <button type="button" class="btn" id="closeAiModal">Cerrar</button>
+        <button type="button" class="btn btn-green" id="saveAiKeyBtn">💾 Guardar Configuración</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Exportación / Vista Previa -->
+<div class="modal-bg" id="exportModal">
+  <div class="modal">
+    <h2 style="margin-bottom:8px;">🎬 Vista Previa del Clip Renderizado</h2>
+    <div id="exportStatus" class="muted">Renderizando clip con subtítulos, filtros y capa PNG...</div>
+    <div id="exportTabWarn" class="security-note" style="margin:8px 0 4px;">
+      ⚠️ <strong>No cambies de pestaña ni minimices el navegador</strong> mientras se renderiza el clip; en segundo plano el navegador pausa el video y puede congelar fotogramas.
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="exportProgress"></div></div>
+    <video id="exportedVideoPreview" controls style="width:100%; max-height:360px; border-radius:12px; display:none; background:#000;"></video>
+    <div class="row" style="margin-top:14px; justify-content:flex-end;">
+      <button type="button" class="btn" id="closeExportModal">Seguir Editando</button>
+      <button type="button" class="btn btn-primary" id="openExportInViewerBtn" style="display:none;">📺 Ver en Visualizador</button>
+      <button type="button" class="btn btn-tg" id="sendExportToTgBtn" style="display:none;">✈️ Enviar a Telegram</button>
+      <a class="btn btn-green" id="downloadExportBtn" style="display:none; text-decoration:none;" download="cliphub_corte.webm">⬇️ Descargar Video</a>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Conectar Red Social Avanzado -->
+<div class="modal-bg" id="accountModal">
+  <div class="modal modal-lg">
+    <div class="row" style="justify-content:space-between; margin-bottom:10px;">
+      <h2 id="accModalTitle" style="margin:0;">Conectar Cuenta</h2>
+      <a id="accPortalLink" href="#" target="_blank" rel="noopener noreferrer" class="muted" style="color:var(--accent); text-decoration:none; font-weight:600;">Portal API Oficial ↗</a>
+    </div>
+
+    <div class="modal-tabs" id="accModeTabs">
+      <button type="button" class="modal-tab active" data-acc-mode="token">🔑 Token / API</button>
+      <button type="button" class="modal-tab" data-acc-mode="webhook">🔗 Webhook Auto</button>
+      <button type="button" class="modal-tab" data-acc-mode="profile">👤 Usuario / Perfil</button>
+    </div>
+
+    <div class="form-grid-2 field-block">
+      <div>
+        <label>Nombre del Canal o @Usuario</label>
+        <input type="text" id="accHandleInput" placeholder="Ej: @TuCanal" />
+      </div>
+      <div>
+        <label>ID de Canal / Cuenta (Opcional)</label>
+        <input type="text" id="accChannelIdInput" placeholder="Ej: UCxxxx o 1784..." />
+      </div>
+    </div>
+
+    <!-- Panel 1: Token / API Oficial -->
+    <div id="accPaneToken">
+      <div class="field-block">
+        <label>Access Token / OAuth Bearer Token</label>
+        <div class="input-group">
+          <input type="password" id="accTokenInput" placeholder="Pega tu Access Token oficial..." autocomplete="off" />
+          <button type="button" class="btn btn-sm" id="toggleAccTokenVis" title="Mostrar u ocultar token">👁️</button>
+        </div>
+      </div>
+      <div class="field-block">
+        <label>OAuth Client ID (Opcional para tu app)</label>
+        <input type="text" id="accClientIdInput" placeholder="Ej: 1234567890-xxxx.apps.googleusercontent.com" />
+      </div>
+    </div>
+
+    <!-- Panel 2: Webhook -->
+    <div id="accPaneWebhook" style="display:none;">
+      <div class="field-block">
+        <label>URL del Webhook (Make, n8n, Zapier o tu servidor)</label>
+        <input type="url" id="accWebhookUrlInput" placeholder="https://hook.us1.make.com/..." />
+      </div>
+      <div class="field-block">
+        <label>Token Secreto / Authorization Header (Opcional)</label>
+        <input type="password" id="accWebhookSecretInput" placeholder="Bearer tu_secreto_seguro" autocomplete="off" />
+      </div>
+      <div class="muted">Ideal para GitHub Pages: al pulsar <strong>Publicar Ahora</strong>, ClipHub envía automáticamente el título, copy, plataforma y fecha a tu flujo.</div>
+    </div>
+
+    <!-- Panel 3: Perfil / Acceso Rápido -->
+    <div id="accPaneProfile" style="display:none;">
+      <div class="form-grid-2 field-block">
+        <div>
+          <label>Usuario o Correo de la Cuenta</label>
+          <input type="text" id="accLoginUserInput" placeholder="tu@correo.com o @usuario" />
+        </div>
+        <div>
+          <label>Enlace Directo a tu Studio / Perfil</label>
+          <input type="url" id="accProfileUrlInput" placeholder="https://studio.youtube.com/..." />
+        </div>
+      </div>
+      <div class="security-note">
+        🔒 <strong>Seguridad:</strong> Por protección de tu cuenta, YouTube, Instagram y TikTok no permiten iniciar sesión directa con contraseña desde páginas estáticas. Usa este modo para vincular tu perfil y abrir tu Studio con el copy copiado al instante, o usa <strong>Token / API</strong> o <strong>Webhook</strong> para envío automatizado.
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:12px; justify-content:flex-end;">
+      <button type="button" class="btn btn-sm btn-primary" id="testAccBtn">⚡ Probar Conexión</button>
+    </div>
+    <div class="test-box" id="accTestResult"></div>
+
+    <div class="row" style="margin-top:16px; justify-content:space-between;">
+      <button type="button" class="btn btn-sm btn-danger" id="disconnectAccBtn">🔌 Desconectar</button>
+      <div class="row">
+        <button type="button" class="btn" id="closeAccModal">Cancelar</button>
+        <button type="button" class="btn btn-green" id="saveAccBtn">💾 Guardar Conexión</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Publicar Ahora -->
+<div class="modal-bg" id="publishModal">
+  <div class="modal">
+    <h2 id="pubModalTitle" style="margin-bottom:8px;">🚀 Publicando en Red Social</h2>
+    <div id="pubStatus" class="muted">Preparando paquete de video y metadatos...</div>
+    <div class="progress-bar"><div class="progress-fill" id="pubProgress"></div></div>
+    <div id="pubLinks" class="row" style="margin-top:12px; display:none;">
+      <a class="btn btn-sm btn-primary" id="pubDirectStudioBtn" href="https://studio.youtube.com" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">Abrir Studio de esta Red ↗</a>
+      <button type="button" class="btn btn-sm btn-amber" id="pubCopyAgainBtn">📋 Copiar Descripción</button>
+    </div>
+    <div class="row" style="margin-top:14px; justify-content:flex-end;">
+      <button type="button" class="btn" id="closePubModal">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
